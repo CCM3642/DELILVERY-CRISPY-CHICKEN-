@@ -1636,7 +1636,7 @@
                         <p class="text-muted mb-2"><span data-translate="template-description">Your Excel file should have these columns:</span></p>
                         <pre>Date | Branch | Channel | Transactions | Sales</pre>
                         <p class="text-muted mt-2"><span data-translate="template-example">Example:</span></p>
-                        <pre>10/11/2025 | Crispy Chicken-Hamdan St | Delivery | 85 | 3800</pre>
+                        <pre>10/1/2025 | Crispy Chicken-Hamdan St | Delivery | 85 | 3800</pre>
                     </div>
                     
                     <div class="alert alert-info-custom" id="uploadAlert" style="display: none;">
@@ -2181,6 +2181,69 @@
             }
         };
 
+        // Helper function to parse date strings in either MM/DD/YYYY or DD/MM/YYYY format
+        function parseDateString(dateStr) {
+            if (!dateStr || !dateStr.includes('/')) return dateStr;
+            
+            const parts = dateStr.split('/');
+            if (parts.length !== 3) return dateStr;
+            
+            let month, day, year;
+            
+            // Check if the first part is greater than 12 -> then it's day
+            if (parseInt(parts[0]) > 12) {
+                // Format is DD/MM/YYYY
+                day = parseInt(parts[0]);
+                month = parseInt(parts[1]);
+                year = parseInt(parts[2]);
+            } else {
+                // Format is MM/DD/YYYY
+                month = parseInt(parts[0]);
+                day = parseInt(parts[1]);
+                year = parseInt(parts[2]);
+            }
+            
+            // Validate the date components
+            if (isNaN(year) || isNaN(month) || isNaN(day) || 
+                month < 1 || month > 12 || day < 1 || day > 31) {
+                return dateStr; // Return original if invalid
+            }
+            
+            // Create a Date object (months are 0-indexed in JS)
+            const dateObj = new Date(year, month - 1, day);
+            
+            // Return in YYYY-MM-DD format for consistency
+            const yearStr = dateObj.getFullYear();
+            const monthStr = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const dayStr = String(dateObj.getDate()).padStart(2, '0');
+            
+            return `${yearStr}-${monthStr}-${dayStr}`;
+        }
+
+        // Updated convertExcelDate function to return YYYY-MM-DD format
+        function convertExcelDate(dateNum) {
+            if (typeof dateNum === 'number') {
+                // Excel dates are stored as days since 1900-01-01
+                // Adjust for Excel leap year bug (1900 is not a leap year but Excel treats it as one)
+                const excelEpoch = new Date(1900, 0, 1);
+                
+                // Excel incorrectly treats 1900 as a leap year
+                const isLeapYearBug = dateNum > 59;
+                const adjustedDateNum = isLeapYearBug ? dateNum + 1 : dateNum;
+                
+                const date = new Date(excelEpoch.getTime() + (adjustedDateNum - 1) * 24 * 60 * 60 * 1000);
+                
+                // Format as YYYY-MM-DD
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                
+                return `${year}-${month}-${day}`;
+            }
+            
+            return dateNum; // Return as is if not a number
+        }
+
         // Process sales data - FIXED VERSION
         function processSalesData(data) {
             // Split by new lines first
@@ -2209,13 +2272,15 @@
                 let count = parseInt(parts[3]) || 0;
                 let sales = parseFloat(parts[4]) || 0;
                 
-                // Convert date if it's a number (Excel date format)
+                // Parse date properly
                 if (typeof date === 'number') {
                     date = convertExcelDate(date);
+                } else if (typeof date === 'string') {
+                    date = parseDateString(date);
                 }
                 
                 // Validate date format
-                if (!date || !date.includes('/')) {
+                if (!date || !date.includes('-')) {
                     console.warn(`Invalid date format in line ${i + 1}: ${date}`);
                     continue;
                 }
@@ -2260,33 +2325,9 @@
 
         // Get day name from date
         function getDayName(dateString) {
+            const dateObj = new Date(dateString);
             const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            const date = new Date(dateString);
-            return days[date.getDay()];
-        }
-
-        // Convert Excel date number to date string - FIXED VERSION
-        function convertExcelDate(dateNum) {
-            if (typeof dateNum === 'number') {
-                // Excel dates are stored as days since 1900-01-01
-                // Adjust for Excel leap year bug (1900 is not a leap year but Excel treats it as one)
-                const excelEpoch = new Date(1900, 0, 1);
-                
-                // Excel incorrectly treats 1900 as a leap year
-                const isLeapYearBug = dateNum > 59;
-                const adjustedDateNum = isLeapYearBug ? dateNum + 1 : dateNum;
-                
-                const date = new Date(excelEpoch.getTime() + (adjustedDateNum - 1) * 24 * 60 * 60 * 1000);
-                
-                // Format as MM/DD/YYYY
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                const day = String(date.getDate()).padStart(2, '0');
-                const year = date.getFullYear();
-                
-                return `${month}/${day}/${year}`;
-            }
-            
-            return dateNum; // Return as is if not a number
+            return days[dateObj.getDay()];
         }
 
         // Calculate totals
@@ -3627,8 +3668,9 @@
             const topBranch = sortedBranches.length > 0 ? sortedBranches[0] : null;
             const lowestBranch = sortedBranches.length > 1 ? sortedBranches[sortedBranches.length - 1] : null;
             
-            // Format the date
-            const formattedDate = new Date(date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+            // Format the date properly
+            const dateObj = new Date(date);
+            const formattedDate = dateObj.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
             
             // Populate the daily summary content
             document.getElementById('selectedDate').textContent = `Date: ${formattedDate}`;
@@ -4265,9 +4307,11 @@
                         let count = parseInt(row[3]) || 0;
                         let sales = parseFloat(row[4]) || 0;
                         
-                        // Convert date if it's a number (Excel date format)
+                        // Parse date properly
                         if (typeof date === 'number') {
                             date = convertExcelDate(date);
+                        } else if (typeof date === 'string') {
+                            date = parseDateString(date);
                         }
                         
                         // Validate data
@@ -4343,15 +4387,15 @@
                 } else {
                     // If no saved data, use default data
                     const salesDataString = `datee\tbranch\tchannel\tcount\tsales\tavr
-1/10/2025\tCrispy Chicken-Hamdan St\tDelivery\t80\t3478\t43.475
-2/10/2025\tCrispy Chicken Khaldia\tDelivery\t65\t2850\t43.846
-3/10/2025\tCrispy Chicken Shabiya11\tDelivery\t92\t4100\t44.565
-4/10/2025\tCrispy Chicken Muroor\tDelivery\t78\t3500\t44.872
-5/10/2025\tCrispy Chicken Al Barsha\tDelivery\t85\t3800\t44.706
-6/10/2025\tCrispy Chicken Al Satwa\tDelivery\t70\t3150\t45.000
-7/10/2025\tCrispy Chicken Al Rgga\tDelivery\t88\t3950\t44.886
-8/10/2025\tCrispy Chicken-Hamdan St\tDelivery\t95\t4200\t44.211
-9/10/2025\tCrispy Chicken Khaldia\tDelivery\t82\t3650\t44.512
+10/1/2025\tCrispy Chicken-Hamdan St\tDelivery\t80\t3478\t43.475
+10/2/2025\tCrispy Chicken Khaldia\tDelivery\t65\t2850\t43.846
+10/3/2025\tCrispy Chicken Shabiya11\tDelivery\t92\t4100\t44.565
+10/4/2025\tCrispy Chicken Muroor\tDelivery\t78\t3500\t44.872
+10/5/2025\tCrispy Chicken Al Barsha\tDelivery\t85\t3800\t44.706
+10/6/2025\tCrispy Chicken Al Satwa\tDelivery\t70\t3150\t45.000
+10/7/2025\tCrispy Chicken Al Rgga\tDelivery\t88\t3950\t44.886
+10/8/2025\tCrispy Chicken-Hamdan St\tDelivery\t95\t4200\t44.211
+10/9/2025\tCrispy Chicken Khaldia\tDelivery\t82\t3650\t44.512
 10/10/2025\tCrispy Chicken Shabiya11\tDelivery\t90\t4050\t45.000`;
 
                     allData = processSalesData(salesDataString);
